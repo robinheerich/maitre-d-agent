@@ -31,8 +31,8 @@ A small macOS menu-bar app for anyone running several Claude Code sessions in pa
 ## Install
 
 ```sh
-git clone https://github.com/robinheerich/maitre-d-agents.git
-cd maitre-d-agents
+git clone https://github.com/robinheerich/maitre-d-agent.git
+cd maitre-d-agent
 ./scripts/install.sh
 ```
 

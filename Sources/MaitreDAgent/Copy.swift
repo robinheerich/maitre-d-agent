@@ -66,6 +66,39 @@ struct Copy {
     }
     var moveToGroup: String { pretentious ? "Move to Table" : "Move to Group" }
 
+    // MARK: Flags
+
+    /// Row text for the newest flag; the subject is named when it isn't the raiser.
+    func flagLine(_ flag: Flag) -> String {
+        flag.isSelf ? flag.message : "\(flag.subjectName): \(flag.message)"
+    }
+
+    func flagHelp(_ flags: [Flag]) -> String {
+        flags.reversed().map { flag in
+            let about = flag.isSelf ? "" : (pretentious ? " on behalf of \(flag.subjectName)" : " for \(flag.subjectName)")
+            return "\(flag.message)\n— \(flag.raisedByName)\(about), \(ago(flag.createdAt))"
+        }.joined(separator: "\n\n")
+    }
+
+    func flagNotificationTitle(_ flag: Flag, group: String) -> String {
+        switch (pretentious, flag.isSelf) {
+        case (false, true): return "\(flag.raisedByName) needs you"
+        case (false, false): return "\(flag.raisedByName): \(flag.subjectName) needs you"
+        case (true, true): return "Claude at table \(group) is waving"
+        case (true, false): return "\(flag.raisedByName) sends word"
+        }
+    }
+
+    func flagNotificationBody(_ flag: Flag) -> String {
+        if pretentious && !flag.isSelf { return "\(flag.subjectName) requests your presence: \(flag.message)" }
+        return flag.message
+    }
+
+    func dismissFlags(_ count: Int) -> String {
+        if pretentious { return "Nod Politely" }
+        return count == 1 ? "Dismiss Flag" : "Dismiss \(count) Flags"
+    }
+
     // MARK: Context window
 
     func contextHelp(_ usage: ContextUsage) -> String {

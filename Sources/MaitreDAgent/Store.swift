@@ -43,8 +43,23 @@ final class Worker: @unchecked Sendable {
             Markers.remove(sessionId)
         }
 
-        // Read transcripts before building agents so context usage is current.
+        // Read transcripts before building agents so context usage and prompts are current.
         let raw = extra + transcripts.poll(sessionIds: entries.map(\.sessionId))
+
+        // A flag clears when the human prompts the agent that raised it or the one it's about,
+        // or when the raising session has been gone for a while.
+        var flagsByRaiser: [String: [Flag]] = [:]
+        for flag in Flags.readAll() {
+            let prompted = [flag.raisedBySession, flag.subjectSession].contains {
+                (transcripts.lastHumanPrompt[$0] ?? .distantPast) > flag.createdAt
+            }
+            let orphaned = !liveIds.contains(flag.raisedBySession) && Date().timeIntervalSince(flag.createdAt) > 300
+            if prompted || orphaned {
+                Flags.remove(flag.id)
+            } else {
+                flagsByRaiser[flag.raisedBySession, default: []].append(flag)
+            }
+        }
 
         var usedKeys = Set<String>()
         var agents: [Agent] = []
@@ -56,7 +71,7 @@ final class Worker: @unchecked Sendable {
                 key += "#\(entry.sessionId.prefix(8))"
                 usedKeys.insert(key)
             }
-            let status: AgentStatus
+            var status: AgentStatus
             var waitReason: WaitReason?
             var since = entry.statusUpdatedAt
             if let marker = markers[entry.sessionId] {
@@ -70,13 +85,19 @@ final class Worker: @unchecked Sendable {
                 default: status = .idle
                 }
             }
+            let flags = flagsByRaiser[entry.sessionId] ?? []
+            if status != .needsMe, let latest = flags.last {
+                status = .needsMe
+                since = latest.createdAt
+            }
             agents.append(Agent(
                 sessionId: entry.sessionId, pid: entry.pid, key: key, name: name, cwd: entry.cwd,
                 repoRoot: root, entrypoint: entry.entrypoint, status: status, waitReason: waitReason,
                 reportedSince: since,
                 context: transcripts.contextTokens[entry.sessionId].map {
                     ContextUsage(tokens: $0.tokens, window: ContextUsage.window(model: $0.model, peakTokens: $0.peak))
-                }
+                },
+                flags: flags
             ))
         }
 
@@ -123,6 +144,8 @@ final class Store: ObservableObject {
 
     var onNeedsMe: ((Agent) -> Void)?
     var onNoLongerNeedsMe: ((Agent) -> Void)?
+    var onFlag: ((Flag, Agent) -> Void)?
+    var onFlagCleared: ((Flag) -> Void)?
 
     private let worker = Worker()
     private let persists: Bool
@@ -161,11 +184,17 @@ final class Store: ObservableObject {
         }
 
         if loaded {
+            let oldFlags = Dictionary(previous.values.flatMap(\.flags).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let newFlagIds = Set(next.flatMap(\.flags).map(\.id))
             for agent in next {
                 let old = previous[agent.sessionId]?.status
-                if agent.status == .needsMe && old != .needsMe { onNeedsMe?(agent) }
+                // Flags notify on their own below, so a flag-only "needs you" doesn't notify twice.
+                let blocked = agent.waitReason != nil
+                if agent.status == .needsMe && old != .needsMe && blocked { onNeedsMe?(agent) }
                 if old == .needsMe && agent.status != .needsMe { onNoLongerNeedsMe?(agent) }
+                for flag in agent.flags where oldFlags[flag.id] == nil { onFlag?(flag, agent) }
             }
+            for (id, flag) in oldFlags where !newFlagIds.contains(id) { onFlagCleared?(flag) }
         }
         if next != agents { agents = next }
 
@@ -372,6 +401,10 @@ final class Store: ObservableObject {
 
     // MARK: - Actions
 
+    func dismissFlags(of agent: Agent) {
+        agent.flags.forEach { Flags.remove($0.id) }
+    }
+
     func focus(_ agent: Agent) {
         VSCode.focus(agent, deepLink: config.deepLink)
     }
@@ -418,17 +451,23 @@ final class Store: ObservableObject {
 
 extension Store {
     func loadDemo(pretentious: Bool) {
-        func agent(_ repo: String, _ name: String, _ status: AgentStatus, _ minutes: Double, _ context: Double, _ reason: WaitReason? = nil) -> Agent {
+        func agent(_ repo: String, _ name: String, _ status: AgentStatus, _ minutes: Double, _ context: Double,
+                   _ reason: WaitReason? = nil, flags: [Flag] = []) -> Agent {
             var agent = Agent(
                 sessionId: UUID().uuidString, pid: 0, key: "/demo/\(repo)|\(name)", name: name, cwd: "/demo/\(repo)",
                 repoRoot: "/demo/\(repo)", entrypoint: "claude-vscode", status: status, waitReason: reason, reportedSince: nil,
-                context: ContextUsage(tokens: Int(context * 1_000_000), window: 1_000_000)
+                context: ContextUsage(tokens: Int(context * 1_000_000), window: 1_000_000),
+                flags: flags
             )
             agent.since = Date().addingTimeInterval(-minutes * 60)
             return agent
         }
         agents = [
-            agent("webshop", "shop-lead", .working, 1, 0.82),
+            agent("webshop", "shop-lead", .needsMe, 1, 0.82, flags: [Flag(
+                id: "demo", raisedBySession: "lead", raisedByName: "shop-lead", subjectSession: "payments",
+                subjectName: "payments", message: "Approve new provider",
+                createdAt: Date().addingTimeInterval(-60)
+            )]),
             agent("webshop", "checkout", .working, 4, 0.41),
             agent("webshop", "search", .needsMe, 2, 0.18, .permission(tool: "Bash")),
             agent("webshop", "design-system", .working, 0, 0.27),

@@ -300,16 +300,33 @@ private struct AgentRow: View {
                     .fontWeight(isLead ? .semibold : .regular)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    // Tooltips sit on the parts, not the row: a row-level .help hides the inner ones.
+                    .help("\(agent.cwd)\n\(store.copy.status(agent.status))\(agent.waitReason.map { " · \(store.copy.reason($0))" } ?? "")")
                 if agent.status == .needsMe, let reason = agent.waitReason {
                     Text(store.copy.reason(reason))
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .lineLimit(1)
+                } else if let flag = agent.flags.last {
+                    FlagLabel(text: store.copy.flagLine(flag), extra: agent.flags.count - 1)
+                        .help(store.copy.flagHelp(agent.flags))
                 }
                 Spacer(minLength: 4)
+                if hovering && !agent.flags.isEmpty {
+                    Button {
+                        store.dismissFlags(of: agent)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(store.copy.dismissFlags(agent.flags.count))
+                }
                 MessageBadges(sent: store.sentCounts[agent.name] ?? 0, received: store.receivedCounts[agent.name] ?? 0, copy: store.copy)
                 if let context = agent.context {
-                    ContextRing(usage: context).help(store.copy.contextHelp(context))
+                    ContextRing(usage: context)
+                        .padding(3)
+                        .contentShape(Rectangle())
+                        .help(store.copy.contextHelp(context))
                 }
                 Text(shortDuration(store.now.timeIntervalSince(agent.since)))
                     .font(.caption2.monospacedDigit())
@@ -332,7 +349,6 @@ private struct AgentRow: View {
         }
         .onHover { hovering = $0 }
         .onTapGesture { store.focus(agent) }
-        .help("\(agent.cwd)\n\(store.copy.status(agent.status))\(agent.waitReason.map { " · \(store.copy.reason($0))" } ?? "")")
         .draggable("agent:\(agent.key)") {
             Text(agent.name).padding(6).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
         }
@@ -344,6 +360,10 @@ private struct AgentRow: View {
             withAnimation(.easeIn(duration: 1.2).delay(0.4)) { flash = false }
         }
         .contextMenu {
+            if !agent.flags.isEmpty {
+                Button(store.copy.dismissFlags(agent.flags.count)) { store.dismissFlags(of: agent) }
+                Divider()
+            }
             Button(store.copy.leadToggle(isLead: isLead)) { store.toggleLead(agent) }
             Menu(store.copy.moveToGroup) {
                 ForEach(store.groups.filter { $0.id != group.id }) { target in
@@ -362,6 +382,21 @@ private struct AgentRow: View {
                 NSPasteboard.general.setString(agent.sessionId, forType: .string)
             }
         }
+    }
+}
+
+private struct FlagLabel: View {
+    let text: String
+    let extra: Int
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "flag.fill").font(.system(size: 8))
+            Text(text).lineLimit(1).truncationMode(.tail)
+            if extra > 0 { Text("+\(extra)").fontWeight(.semibold) }
+        }
+        .font(.caption)
+        .foregroundStyle(.orange)
     }
 }
 

@@ -68,8 +68,22 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.add(UNNotificationRequest(identifier: identifier(agent), content: content, trigger: nil))
     }
 
+    func post(id: String, title: String, body: String, sessionId: String) {
+        guard let center else { return }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.userInfo = ["sessionId": sessionId]
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+    }
+
     func clear(_ agent: Agent) {
-        center?.removeDeliveredNotifications(withIdentifiers: [identifier(agent)])
+        clear(id: identifier(agent))
+    }
+
+    func clear(id: String) {
+        center?.removeDeliveredNotifications(withIdentifiers: [id])
     }
 
     private func identifier(_ agent: Agent) -> String { "needs-\(agent.sessionId)" }

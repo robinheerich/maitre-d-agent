@@ -7,6 +7,9 @@ enum Main {
     @MainActor
     static func main() {
         let arguments = CommandLine.arguments
+        if arguments.count > 1, CLI.commands.contains(arguments[1]) {
+            exit(CLI.run(arguments))
+        }
         if arguments.contains("--install-hooks") || arguments.contains("--uninstall-hooks") {
             do {
                 if arguments.contains("--install-hooks") {
@@ -26,7 +29,7 @@ enum Main {
         if arguments.contains("--dump") {
             let snapshot = Worker().snapshotOnce()
             for agent in snapshot.agents {
-                print("\(Copy.normal.status(agent.status).padding(toLength: 10, withPad: " ", startingAt: 0)) \(agent.name)  [\(agent.repoRoot)]\(agent.waitReason.map { "  (\(Copy.normal.reason($0)))" } ?? "")\(agent.context.map { "  ctx \($0.percent)% \(shortTokens($0.tokens))/\(shortTokens($0.window))" } ?? "")")
+                print("\(Copy.normal.status(agent.status).padding(toLength: 10, withPad: " ", startingAt: 0)) \(agent.name)  [\(agent.repoRoot)]\(agent.waitReason.map { "  (\(Copy.normal.reason($0)))" } ?? "")\(agent.context.map { "  ctx \($0.percent)% \(shortTokens($0.tokens))/\(shortTokens($0.window))" } ?? "")\(agent.flags.map { "  flag: \(Copy.normal.flagLine($0))" }.joined())")
             }
             print("\(snapshot.messages.count) messages in the last 24h")
             for message in snapshot.messages.sorted(by: { $0.date > $1.date }).prefix(10) {
@@ -110,6 +113,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.notifier.post(agent, group: group, copy: self.store.copy)
         }
         store.onNoLongerNeedsMe = { [weak self] agent in self?.notifier.clear(agent) }
+        store.onFlag = { [weak self] flag, agent in
+            guard let self, self.store.config.notifications else { return }
+            let group = self.store.groups.first { $0.agents.contains { $0.key == agent.key } }?.title ?? ""
+            self.notifier.post(
+                id: "flag-\(flag.id)",
+                title: self.store.copy.flagNotificationTitle(flag, group: group),
+                body: self.store.copy.flagNotificationBody(flag),
+                sessionId: agent.sessionId
+            )
+        }
+        store.onFlagCleared = { [weak self] flag in self?.notifier.clear(id: "flag-\(flag.id)") }
 
         store.start()
         if store.config.pinned { panel.show() }

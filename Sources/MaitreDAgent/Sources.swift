@@ -95,6 +95,40 @@ enum Markers {
     }
 }
 
+// MARK: - Flags raised by agents (`maitre-d flag`)
+
+enum Flags {
+    private static let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .secondsSince1970
+        e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return e
+    }()
+    private static let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .secondsSince1970
+        return d
+    }()
+
+    static func readAll() -> [Flag] {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: Paths.flags.path) else { return [] }
+        return files.filter { $0.hasSuffix(".json") }
+            .compactMap { fm.contents(atPath: Paths.flags.appendingPathComponent($0).path) }
+            .compactMap { try? decoder.decode(Flag.self, from: $0) }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    static func write(_ flag: Flag) throws {
+        try FileManager.default.createDirectory(at: Paths.flags, withIntermediateDirectories: true)
+        try encoder.encode(flag).write(to: Paths.flags.appendingPathComponent("\(flag.id).json"), options: .atomic)
+    }
+
+    static func remove(_ id: String) {
+        try? FileManager.default.removeItem(at: Paths.flags.appendingPathComponent("\(id).json"))
+    }
+}
+
 // MARK: - Repo grouping
 
 final class RepoResolver {
@@ -143,6 +177,7 @@ final class Transcripts {
     private static let sendPattern = Data(#""name":"SendMessage""#.utf8)
     private static let namePattern = Data(#""type":"agent-name""#.utf8)
     private static let usagePattern = Data(#""cache_read_input_tokens""#.utf8)
+    private static let humanPattern = Data(#""kind":"human""#.utf8)
     private static let newline = UInt8(ascii: "\n")
 
     private struct Tail {
@@ -157,6 +192,8 @@ final class Transcripts {
     private(set) var agentNames: [String: String] = [:]
     /// Context tokens of each session's latest main-thread API response, plus its model and peak.
     private(set) var contextTokens: [String: (tokens: Int, model: String, peak: Int)] = [:]
+    /// When the human last prompted each session (messages from other agents don't count).
+    private(set) var lastHumanPrompt: [String: Date] = [:]
 
     private let isoFull: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -239,6 +276,14 @@ final class Transcripts {
             contextTokens[sessionId] = (usage.tokens, usage.model, peak)
         }
         var messages: [RawMessage] = []
+        for line in lines(in: data, containing: Self.humanPattern) {
+            guard let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+                  obj["type"] as? String == "user",
+                  (obj["origin"] as? [String: Any])?["kind"] as? String == "human",
+                  let timestamp = obj["timestamp"] as? String,
+                  let date = isoFull.date(from: timestamp) ?? isoPlain.date(from: timestamp) else { continue }
+            if date > lastHumanPrompt[sessionId] ?? .distantPast { lastHumanPrompt[sessionId] = date }
+        }
         for line in lines(in: data, containing: Self.namePattern) {
             if let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
                let name = obj["agentName"] as? String {

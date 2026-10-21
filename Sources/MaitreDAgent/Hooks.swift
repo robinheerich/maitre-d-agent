@@ -47,6 +47,46 @@ enum HookInstaller {
     exit 0
     """#
 
+    /// Teaches Claude sessions when and how to flag the human. Installed as a user-level skill.
+    static let skill = #"""
+    ---
+    name: maitre-d
+    description: Flag the human in the Maître d'Agént menu-bar app when you need their decision, approval or input, or (as a lead) when another agent does. Use when you are blocked on the human or need a human call; not for progress updates.
+    ---
+
+    # Flag the human (Maître d'Agént)
+
+    The human watches all their Claude Code sessions in the Maître d'Agént menu-bar app. A flag turns your row orange with your message and sends them a notification, even when they aren't looking at your session.
+
+    ```sh
+    ~/.maitre-d-agent/bin/maitre-d flag "<what you need, in one line>"
+    ~/.maitre-d-agent/bin/maitre-d flag --agent <session-name> "<what that agent needs>"
+    ~/.maitre-d-agent/bin/maitre-d unflag [--agent <session-name>]
+    ~/.maitre-d-agent/bin/maitre-d flags
+    ```
+
+    ## When to flag
+
+    - A decision only the human can make, and work is waiting on it.
+    - Approval before something irreversible or outward-facing (deleting data, deploying, sending things to people).
+    - You're blocked on human input and they may not be watching your session.
+    - As a lead: another agent needs the human's approval or decision. Use `--agent` with its session name (the same names SendMessage uses). The flag shows on **your** row, so the human comes to you, the lead.
+
+    ## When not to
+
+    - Routine progress or "done" reports. Put those in your reply.
+    - Questions for other agents. Use SendMessage.
+    - Permission prompts and questions you ask the human directly already show in the app on their own.
+
+    ## Writing the message
+
+    One line, at most about 120 characters, starting with what you need:
+    `Approve: drop the legacy orders table` or `Decide: ship the feed schema as v1 or wait for review?`
+    Put details in your conversation, not in the flag.
+
+    The flag clears when the human next prompts you or the agent it's about, when they dismiss it in the app, or when you run `unflag`. Run `unflag` yourself if the need goes away. If the command fails (not inside a Claude Code session, app not installed), tell the human in your reply instead.
+    """#
+
     /// (event, matcher); nil matcher for events that don't take one.
     private static let events: [(String, String?)] = [
         ("PermissionRequest", ""),
@@ -63,11 +103,28 @@ enum HookInstaller {
 
     static var command: String { "/bin/sh \"\(Paths.hook.path)\"" }
 
+    /// Lets agents run the flag command without a permission prompt.
+    private static var permissionRules: [String] {
+        ["Bash(~/.maitre-d-agent/bin/maitre-d *)", "Bash(\(Paths.cli.path) *)"]
+    }
+
     static func writeScript() {
         let fm = FileManager.default
         try? fm.createDirectory(at: Paths.state, withIntermediateDirectories: true)
         try? script.write(to: Paths.hook, atomically: true, encoding: .utf8)
         try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: Paths.hook.path)
+        writeCLI()
+    }
+
+    /// ~/.maitre-d-agent/bin/maitre-d forwards to the installed app's executable.
+    /// Only written from an app bundle, so a debug build never points it at .build/.
+    private static func writeCLI() {
+        guard Bundle.main.bundlePath.hasSuffix(".app"), let executable = Bundle.main.executablePath else { return }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: Paths.cli.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let wrapper = "#!/bin/sh\n# Maitre d'Agent flag command; see `maitre-d help`.\nexec \"\(executable)\" \"$@\"\n"
+        try? wrapper.write(to: Paths.cli, atomically: true, encoding: .utf8)
+        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: Paths.cli.path)
     }
 
     static func isInstalled() -> Bool {
@@ -89,14 +146,29 @@ enum HookInstaller {
             hooks[event] = groups
         }
         settings["hooks"] = hooks
+        var permissions = settings["permissions"] as? [String: Any] ?? [:]
+        var allow = (permissions["allow"] as? [String] ?? []).filter { !permissionRules.contains($0) }
+        allow += permissionRules
+        permissions["allow"] = allow
+        settings["permissions"] = permissions
         try saveSettings(settings)
+
+        let fm = FileManager.default
+        try fm.createDirectory(at: Paths.skill, withIntermediateDirectories: true)
+        try skill.write(to: Paths.skill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
     }
 
     static func uninstall() throws {
         var settings = try loadSettings()
         let hooks = strip(settings["hooks"] as? [String: Any] ?? [:]) { $0.contains(marker) }
         settings["hooks"] = hooks.isEmpty ? nil : hooks
+        if var permissions = settings["permissions"] as? [String: Any] {
+            let allow = (permissions["allow"] as? [String] ?? []).filter { !permissionRules.contains($0) }
+            permissions["allow"] = allow.isEmpty ? nil : allow
+            settings["permissions"] = permissions.isEmpty ? nil : permissions
+        }
         try saveSettings(settings)
+        try? FileManager.default.removeItem(at: Paths.skill)
     }
 
     private static func strip(_ hooks: [String: Any], where matches: (String) -> Bool) -> [String: Any] {

@@ -12,7 +12,8 @@ mkdir -p "$HOME/Applications"
 rm -rf "$DEST"
 cp -R build/MaitreDAgent.app "$DEST"
 
-if ! grep -q "maitre-d-agent/hook.sh" "$HOME/.claude/settings.json" 2>/dev/null; then
+if ! grep -q "maitre-d-agent/hook.sh" "$HOME/.claude/settings.json" 2>/dev/null \
+    || [ ! -f "$HOME/.claude/skills/maitre-d/SKILL.md" ]; then
     "$DEST/Contents/MacOS/MaitreDAgent" --install-hooks
 fi
 open "$DEST"

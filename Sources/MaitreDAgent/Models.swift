@@ -10,6 +10,9 @@ enum Paths {
     static let state = appDir.appendingPathComponent("state")
     static let config = appDir.appendingPathComponent("config.json")
     static let hook = appDir.appendingPathComponent("hook.sh")
+    static let flags = appDir.appendingPathComponent("flags")
+    static let cli = appDir.appendingPathComponent("bin/maitre-d")
+    static let skill = claude.appendingPathComponent("skills/maitre-d")
 }
 
 enum AgentStatus: Int, Comparable {
@@ -41,9 +44,25 @@ struct Agent: Identifiable, Equatable {
     /// Registry timestamp of the last status change, if known.
     let reportedSince: Date?
     let context: ContextUsage?
+    /// Flags raised by this agent (for itself or for another agent), oldest first.
+    let flags: [Flag]
     var since: Date = .distantPast
 
     var id: String { key }
+}
+
+/// An agent asking for the human's attention via `maitre-d flag`.
+/// Shown on the row of the agent that raised it; `subject` is who it's about.
+struct Flag: Codable, Identifiable, Equatable {
+    let id: String
+    let raisedBySession: String
+    let raisedByName: String
+    let subjectSession: String
+    let subjectName: String
+    let message: String
+    let createdAt: Date
+
+    var isSelf: Bool { subjectSession == raisedBySession }
 }
 
 /// How full a session's context window is, from its latest API response.
@@ -147,6 +166,12 @@ struct Config: Codable, Equatable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try? encoder.encode(self).write(to: Paths.config, options: .atomic)
     }
+}
+
+/// "just now" or "5m ago".
+func ago(_ date: Date) -> String {
+    let duration = shortDuration(Date().timeIntervalSince(date))
+    return duration == "now" ? "just now" : "\(duration) ago"
 }
 
 func shortDuration(_ interval: TimeInterval) -> String {

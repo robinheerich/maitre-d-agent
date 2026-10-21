@@ -16,6 +16,7 @@ A small macOS menu-bar app for anyone running several Claude Code sessions in pa
 - **Grouping**: sessions are grouped by git repo automatically, and worktrees join their main repo. Make your own groups and drag agents between them.
 - **Manual order**: drag agents and groups into the order you want. The order survives restarts.
 - **Lead agents**: if one agent per project coordinates the others, mark it as lead. It moves to the top with a ★ and the rest of its group fades slightly. Agents that need you never fade.
+- **Agents can flag you**: an agent runs `maitre-d flag "Approve: …"` when it needs your decision. A lead can flag on behalf of another agent; the flag then shows on the lead's row. See [Flags](#flags).
 - **Context window**: a small pie per agent shows how full its context is, and turns orange from 70% so you know when to compact. Hover for exact token counts.
 - **Agent-to-agent messages**: each agent shows how many `SendMessage` messages it sent and received in the last 24h (↑ sent ↓ received). A feed lists them; click one for the full text.
 - **Jump to the session**: click an agent to bring its VS Code window forward and open its Claude tab.
@@ -39,7 +40,7 @@ cd maitre-d-agent
 
 This builds the app, copies it to `~/Applications/MaitreDAgent.app`, installs the Claude Code hooks and launches it. Because it's built on your own Mac, macOS doesn't show a Gatekeeper warning.
 
-**The installer edits `~/.claude/settings.json`.** It adds hooks that run `~/.maitre-d-agent/hook.sh`, and it first saves a backup as `settings.json.maitre-d-agent-backup-<timestamp>`. Sessions that were already running may need a restart before they use the new hooks.
+**The installer edits `~/.claude/settings.json`.** It adds hooks that run `~/.maitre-d-agent/hook.sh` and a permission rule for the flag command, installs the `maitre-d` skill in `~/.claude/skills/`, and first saves a backup as `settings.json.maitre-d-agent-backup-<timestamp>`. Sessions that were already running may need a restart before they use the new hooks.
 
 To update, `git pull` and run `./scripts/install.sh` again. To remove the app, its hooks and its data, run `./scripts/uninstall.sh`.
 
@@ -53,11 +54,28 @@ Everything is read from local files. The app makes no network requests.
 | Needs you | Marker files written by `~/.maitre-d-agent/hook.sh` on `PermissionRequest`, `AskUserQuestion` and `ExitPlanMode`, and removed when the session continues. Also the registry's `waiting` status. |
 | Messages | `SendMessage` tool calls in the session transcripts, `~/.claude/projects/*/<session>.jsonl` |
 | Context window | Token usage of the latest API response in the transcript (`input + cache_creation + cache_read`). The window size isn't recorded, so it's inferred: 1M for `[1m]` models, model families that default to 1M, or sessions already past 200k; otherwise 200k. |
+| Flags | Files in `~/.maitre-d-agent/flags/` written by `maitre-d flag`. Your prompts are recognised in the transcripts (`origin.kind: human`) to clear them. |
 | Groups | The git common dir of each session's working directory |
 
 Your groups, leads, order and settings are stored in `~/.maitre-d-agent/config.json`. Leads and order are keyed by repo plus session name, so they carry over when you restart or resume a session. Giving agents names (`/rename`) makes this work best.
 
 **Caveat:** the session registry is an undocumented Claude Code internal. If an update changes it, parsing lives in one file, [`Sources.swift`](Sources/MaitreDAgent/Sources.swift).
+
+## Flags
+
+Agents can ask for your attention even when they aren't blocked on a prompt. The installer adds a small command and a [Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills) that tells sessions when and how to use it:
+
+```sh
+~/.maitre-d-agent/bin/maitre-d flag "Decide: ship the feed schema as v1?"        # flag yourself
+~/.maitre-d-agent/bin/maitre-d flag --agent merchant "Approve the schema change"  # a lead flags another agent
+~/.maitre-d-agent/bin/maitre-d unflag                                            # take it back
+~/.maitre-d-agent/bin/maitre-d flags                                             # list open flags
+```
+
+- The command works out which session ran it, so agents never need their session ID. `--agent` takes a session name, the same names SendMessage uses.
+- A flag shows on the row of the agent that raised it, with 🚩 and its message. Hover for the full text and who it's about. You also get a notification.
+- A flag clears when you next prompt the agent that raised it or the one it's about (messages from other agents don't count), when you dismiss it (✕ on hover or right-click), or when the agent runs `unflag`.
+- The installer allows `~/.maitre-d-agent/bin/maitre-d` in your Claude Code permissions so flagging never itself triggers a permission prompt, and puts the skill in `~/.claude/skills/maitre-d/`. Uninstalling removes both.
 
 ## Usage
 

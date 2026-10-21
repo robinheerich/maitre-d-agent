@@ -43,6 +43,9 @@ final class Worker: @unchecked Sendable {
             Markers.remove(sessionId)
         }
 
+        // Read transcripts before building agents so context usage is current.
+        let raw = extra + transcripts.poll(sessionIds: entries.map(\.sessionId))
+
         var usedKeys = Set<String>()
         var agents: [Agent] = []
         for entry in entries {
@@ -70,11 +73,13 @@ final class Worker: @unchecked Sendable {
             agents.append(Agent(
                 sessionId: entry.sessionId, pid: entry.pid, key: key, name: name, cwd: entry.cwd,
                 repoRoot: root, entrypoint: entry.entrypoint, status: status, waitReason: waitReason,
-                reportedSince: since
+                reportedSince: since,
+                context: transcripts.contextTokens[entry.sessionId].map {
+                    ContextUsage(tokens: $0.tokens, window: ContextUsage.window(model: $0.model, peakTokens: $0.peak))
+                }
             ))
         }
 
-        let raw = extra + transcripts.poll(sessionIds: entries.map(\.sessionId))
         let liveNames = Dictionary(entries.map { ($0.sessionId, $0.name) }, uniquingKeysWith: { a, _ in a })
         let messages = raw.map { m in
             AgentMessage(
@@ -413,24 +418,25 @@ final class Store: ObservableObject {
 
 extension Store {
     func loadDemo(pretentious: Bool) {
-        func agent(_ repo: String, _ name: String, _ status: AgentStatus, _ minutes: Double, _ reason: WaitReason? = nil) -> Agent {
+        func agent(_ repo: String, _ name: String, _ status: AgentStatus, _ minutes: Double, _ context: Double, _ reason: WaitReason? = nil) -> Agent {
             var agent = Agent(
                 sessionId: UUID().uuidString, pid: 0, key: "/demo/\(repo)|\(name)", name: name, cwd: "/demo/\(repo)",
-                repoRoot: "/demo/\(repo)", entrypoint: "claude-vscode", status: status, waitReason: reason, reportedSince: nil
+                repoRoot: "/demo/\(repo)", entrypoint: "claude-vscode", status: status, waitReason: reason, reportedSince: nil,
+                context: ContextUsage(tokens: Int(context * 1_000_000), window: 1_000_000)
             )
             agent.since = Date().addingTimeInterval(-minutes * 60)
             return agent
         }
         agents = [
-            agent("webshop", "shop-lead", .working, 1),
-            agent("webshop", "checkout", .working, 4),
-            agent("webshop", "search", .needsMe, 2, .permission(tool: "Bash")),
-            agent("webshop", "design-system", .working, 0),
-            agent("webshop", "payments", .idle, 38),
-            agent("infra", "terraform", .working, 12),
-            agent("infra", "ci-fixer", .idle, 95),
-            agent("blog", "blog", .idle, 300),
-            agent("dotfiles", "dotfiles", .working, 2),
+            agent("webshop", "shop-lead", .working, 1, 0.82),
+            agent("webshop", "checkout", .working, 4, 0.41),
+            agent("webshop", "search", .needsMe, 2, 0.18, .permission(tool: "Bash")),
+            agent("webshop", "design-system", .working, 0, 0.27),
+            agent("webshop", "payments", .idle, 38, 0.63),
+            agent("infra", "terraform", .working, 12, 0.35),
+            agent("infra", "ci-fixer", .idle, 95, 0.12),
+            agent("blog", "blog", .idle, 300, 0.05),
+            agent("dotfiles", "dotfiles", .working, 2, 0.22),
         ]
 
         func message(_ minutes: Double, _ from: String, _ to: String, _ summary: String, _ text: String = "") -> AgentMessage {

@@ -308,6 +308,9 @@ private struct AgentRow: View {
                 }
                 Spacer(minLength: 4)
                 MessageBadges(sent: store.sentCounts[agent.name] ?? 0, received: store.receivedCounts[agent.name] ?? 0, copy: store.copy)
+                if let context = agent.context {
+                    ContextRing(usage: context).help(store.copy.contextHelp(context))
+                }
                 Text(shortDuration(store.now.timeIntervalSince(agent.since)))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
@@ -375,6 +378,37 @@ private struct MessageBadges: View {
         .font(.caption2.monospacedDigit())
         .foregroundStyle(.secondary)
         .help(copy.badgeHelp(sent: sent, received: received))
+    }
+}
+
+/// Context window fill as a small pie (a ring would read as the "working" spinner).
+/// Turns orange once it's worth compacting.
+private struct ContextRing: View {
+    let usage: ContextUsage
+
+    private var color: Color { usage.fraction >= 0.7 ? .orange : .secondary }
+
+    var body: some View {
+        ZStack {
+            Circle().strokeBorder(color.opacity(0.6), lineWidth: 1)
+            PieSlice(fraction: usage.fraction).fill(color).padding(2)
+        }
+        .frame(width: 12, height: 12)
+    }
+}
+
+private struct PieSlice: Shape {
+    let fraction: Double
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard fraction > 0 else { return path }
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        path.move(to: center)
+        path.addArc(center: center, radius: min(rect.width, rect.height) / 2,
+                    startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * fraction), clockwise: false)
+        path.closeSubpath()
+        return path
     }
 }
 

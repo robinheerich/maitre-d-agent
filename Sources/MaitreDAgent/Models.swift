@@ -40,9 +40,36 @@ struct Agent: Identifiable, Equatable {
     let waitReason: WaitReason?
     /// Registry timestamp of the last status change, if known.
     let reportedSince: Date?
+    let context: ContextUsage?
     var since: Date = .distantPast
 
     var id: String { key }
+}
+
+/// How full a session's context window is, from its latest API response.
+struct ContextUsage: Equatable {
+    let tokens: Int
+    let window: Int
+
+    var fraction: Double { min(1, Double(tokens) / Double(window)) }
+    var percent: Int { Int((fraction * 100).rounded()) }
+
+    /// Claude Code doesn't record the window size in the transcript, so infer it:
+    /// a `[1m]` model, a model family known to default to 1M, or usage already past 200k.
+    static func window(model: String, peakTokens: Int) -> Int {
+        let model = model.lowercased()
+        let oneMillion = ["claude-opus-5", "claude-fable-5", "claude-sonnet-5", "claude-mythos", "claude-opus-4-7", "claude-opus-4-8"]
+        if model.contains("[1m]") || oneMillion.contains(where: model.hasPrefix) || peakTokens > 200_000 {
+            return 1_000_000
+        }
+        return 200_000
+    }
+}
+
+func shortTokens(_ tokens: Int) -> String {
+    if tokens >= 1_000_000 { return String(format: "%.1fM", Double(tokens) / 1_000_000).replacingOccurrences(of: ".0M", with: "M") }
+    if tokens >= 1000 { return "\(tokens / 1000)k" }
+    return "\(tokens)"
 }
 
 struct AgentMessage: Identifiable, Equatable {

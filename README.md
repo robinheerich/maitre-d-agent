@@ -16,6 +16,7 @@ A small macOS menu-bar app for anyone running several Claude Code sessions in pa
 - **Grouping**: sessions are grouped by git repo automatically, and worktrees join their main repo. Make your own groups and drag agents between them.
 - **Manual order**: drag agents and groups into the order you want. The order survives restarts.
 - **Lead agents**: if one agent per project coordinates the others, mark it as lead. It moves to the top with a ★ and the rest of its group fades slightly. Agents that need you never fade.
+- **Context window**: a small pie per agent shows how full its context is, and turns orange from 70% so you know when to compact. Hover for exact token counts.
 - **Agent-to-agent messages**: each agent shows how many `SendMessage` messages it sent and received in the last 24h (↑ sent ↓ received). A feed lists them; click one for the full text.
 - **Jump to the session**: click an agent to bring its VS Code window forward and open its Claude tab.
 - **Notifications** when an agent starts needing you.
@@ -51,6 +52,7 @@ Everything is read from local files. The app makes no network requests.
 | Running sessions, names, working/idle | `~/.claude/sessions/<pid>.json`, the session registry Claude Code maintains |
 | Needs you | Marker files written by `~/.maitre-d-agent/hook.sh` on `PermissionRequest`, `AskUserQuestion` and `ExitPlanMode`, and removed when the session continues. Also the registry's `waiting` status. |
 | Messages | `SendMessage` tool calls in the session transcripts, `~/.claude/projects/*/<session>.jsonl` |
+| Context window | Token usage of the latest API response in the transcript (`input + cache_creation + cache_read`). The window size isn't recorded, so it's inferred: 1M for `[1m]` models, model families that default to 1M, or sessions already past 200k; otherwise 200k. |
 | Groups | The git common dir of each session's working directory |
 
 Your groups, leads, order and settings are stored in `~/.maitre-d-agent/config.json`. Leads and order are keyed by repo plus session name, so they carry over when you restart or resume a session. Giving agents names (`/rename`) makes this work best.

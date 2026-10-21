@@ -66,6 +66,13 @@ struct Copy {
     }
     var moveToGroup: String { pretentious ? "Move to Table" : "Move to Group" }
 
+    // MARK: Context window
+
+    func contextHelp(_ usage: ContextUsage) -> String {
+        let amounts = "\(shortTokens(usage.tokens)) of \(shortTokens(usage.window)) tokens"
+        return pretentious ? "\(usage.percent)% full. \(amounts)" : "Context: \(usage.percent)% · \(amounts)"
+    }
+
     // MARK: Messages
 
     var messagesTitle: String { pretentious ? "Notes between tables" : "Messages" }

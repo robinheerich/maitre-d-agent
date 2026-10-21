@@ -26,7 +26,7 @@ enum Main {
         if arguments.contains("--dump") {
             let snapshot = Worker().snapshotOnce()
             for agent in snapshot.agents {
-                print("\(Copy.normal.status(agent.status).padding(toLength: 10, withPad: " ", startingAt: 0)) \(agent.name)  [\(agent.repoRoot)]\(agent.waitReason.map { "  (\(Copy.normal.reason($0)))" } ?? "")")
+                print("\(Copy.normal.status(agent.status).padding(toLength: 10, withPad: " ", startingAt: 0)) \(agent.name)  [\(agent.repoRoot)]\(agent.waitReason.map { "  (\(Copy.normal.reason($0)))" } ?? "")\(agent.context.map { "  ctx \($0.percent)% \(shortTokens($0.tokens))/\(shortTokens($0.window))" } ?? "")")
             }
             print("\(snapshot.messages.count) messages in the last 24h")
             for message in snapshot.messages.sorted(by: { $0.date > $1.date }).prefix(10) {

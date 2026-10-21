@@ -142,6 +142,7 @@ final class Transcripts {
     private static let maxScan: UInt64 = 16 << 20
     private static let sendPattern = Data(#""name":"SendMessage""#.utf8)
     private static let namePattern = Data(#""type":"agent-name""#.utf8)
+    private static let usagePattern = Data(#""cache_read_input_tokens""#.utf8)
     private static let newline = UInt8(ascii: "\n")
 
     private struct Tail {
@@ -154,6 +155,8 @@ final class Transcripts {
     private var seen = Set<String>()
     /// Session names recorded in transcripts, for senders that are no longer running.
     private(set) var agentNames: [String: String] = [:]
+    /// Context tokens of each session's latest main-thread API response, plus its model and peak.
+    private(set) var contextTokens: [String: (tokens: Int, model: String, peak: Int)] = [:]
 
     private let isoFull: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -231,6 +234,10 @@ final class Transcripts {
     }
 
     private func parse(_ data: Data, sessionId: String) -> [RawMessage] {
+        if let usage = latestUsage(in: data) {
+            let peak = max(usage.tokens, contextTokens[sessionId]?.peak ?? 0)
+            contextTokens[sessionId] = (usage.tokens, usage.model, peak)
+        }
         var messages: [RawMessage] = []
         for line in lines(in: data, containing: Self.namePattern) {
             if let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
@@ -269,6 +276,29 @@ final class Transcripts {
             }
         }
         return messages
+    }
+
+    /// The last main-thread assistant response with token usage in this chunk.
+    private func latestUsage(in data: Data) -> (tokens: Int, model: String)? {
+        var searchEnd = data.endIndex
+        while searchEnd > data.startIndex,
+              let match = data.range(of: Self.usagePattern, options: .backwards, in: data.startIndex..<searchEnd) {
+            var start = match.lowerBound
+            while start > data.startIndex && data[start - 1] != Self.newline { start -= 1 }
+            let end = data[match.upperBound...].firstIndex(of: Self.newline) ?? data.endIndex
+            searchEnd = start
+            guard let obj = (try? JSONSerialization.jsonObject(with: data[start..<end])) as? [String: Any],
+                  obj["type"] as? String == "assistant",
+                  obj["isSidechain"] as? Bool != true,
+                  let message = obj["message"] as? [String: Any],
+                  let usage = message["usage"] as? [String: Any] else { continue }
+            let model = message["model"] as? String ?? ""
+            let tokens = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
+                .reduce(0) { $0 + ((usage[$1] as? Int) ?? 0) }
+            if tokens == 0 || model.hasPrefix("<") { continue } // synthetic messages
+            return (tokens, model)
+        }
+        return nil
     }
 
     /// Whole lines that contain the pattern, without splitting every line of a large chunk.

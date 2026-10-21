@@ -24,6 +24,8 @@
     <true/>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Maître d'Agént brings the Terminal tab of the session you click to the front.</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>

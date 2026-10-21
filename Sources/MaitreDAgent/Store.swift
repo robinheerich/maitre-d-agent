@@ -406,7 +406,7 @@ final class Store: ObservableObject {
     }
 
     func focus(_ agent: Agent) {
-        VSCode.focus(agent, deepLink: config.deepLink)
+        SessionFocus.focus(agent, deepLink: config.deepLink)
     }
 
     func focus(sessionId: String) {

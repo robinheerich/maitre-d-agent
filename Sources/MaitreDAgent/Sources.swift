@@ -56,6 +56,42 @@ enum Registry {
     }
 }
 
+// MARK: - Process tree
+
+enum Processes {
+    static func parent(of pid: pid_t) -> pid_t? {
+        kinfo(pid).map { $0.kp_eproc.e_ppid }
+    }
+
+    /// Controlling terminal of a process, e.g. "/dev/ttys003".
+    static func tty(of pid: pid_t) -> String? {
+        guard let info = kinfo(pid), info.kp_eproc.e_tdev != -1,
+              let name = devname(info.kp_eproc.e_tdev, S_IFCHR) else { return nil }
+        return "/dev/" + String(cString: name)
+    }
+
+    /// The process and its ancestors, nearest first.
+    static func ancestry(of pid: pid_t) -> [pid_t] {
+        var chain = [pid]
+        var current = pid
+        while chain.count < 64, let parent = parent(of: current), parent > 1, parent != current {
+            chain.append(parent)
+            current = parent
+        }
+        return chain
+    }
+
+    /// sysctl rather than proc_pidinfo: it can also read root-owned processes like `login`,
+    /// which sits between Terminal and the shell.
+    private static func kinfo(_ pid: pid_t) -> kinfo_proc? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        return info
+    }
+}
+
 // MARK: - "Needs me" markers written by hook.sh
 
 struct Marker {

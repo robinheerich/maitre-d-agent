@@ -19,7 +19,7 @@ A small macOS menu-bar app for anyone running several Claude Code sessions in pa
 - **Agents can flag you**: an agent runs `maitre-d flag "Approve: …"` when it needs your decision. A lead can flag on behalf of another agent; the flag then shows on the lead's row. See [Flags](#flags).
 - **Context window**: a small pie per agent shows how full its context is, and turns orange from 70% so you know when to compact. Hover for exact token counts.
 - **Agent-to-agent messages**: each agent shows how many `SendMessage` messages it sent and received in the last 24h (↑ sent ↓ received). A feed lists them; click one for the full text.
-- **Jump to the session**: click an agent to bring its VS Code window forward and open its Claude tab.
+- **Jump to the session**: click an agent to bring it to the front. For VS Code sessions, its window comes forward and its Claude tab opens. For Terminal.app, the exact tab is selected. For other terminals, the app comes to the front.
 - **Notifications** when an agent starts needing you.
 - **Pin** the panel to keep it floating on top, or let it drop down from the menu bar.
 - **Pretentious mode**: the same app, narrated by a French maître d'. Patrons wave, dine and digest, and pass notes between tables. Toggle it in the ⋯ menu.
@@ -28,7 +28,7 @@ A small macOS menu-bar app for anyone running several Claude Code sessions in pa
 
 - macOS 14 or later
 - Apple's Command Line Tools (`xcode-select --install`). Full Xcode isn't needed.
-- [Claude Code](https://claude.com/claude-code). Clicking an agent jumps to it in VS Code with the Claude Code extension; everything else works with sessions from any terminal too.
+- [Claude Code](https://claude.com/claude-code). Sessions from the VS Code extension and from any terminal both work. Jumping to the exact tab works for VS Code and Terminal.app. The first time you click a Terminal session, macOS asks whether Maître d'Agént may control Terminal.
 
 ## Install
 

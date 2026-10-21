@@ -98,20 +98,7 @@ enum CLI {
     /// The Claude session this command runs in: the nearest ancestor process with a registry entry.
     static func currentSession() -> RegistryEntry? {
         let entries = Dictionary(Registry.read().map { ($0.pid, $0) }, uniquingKeysWith: { a, _ in a })
-        var pid = getppid()
-        for _ in 0..<64 {
-            if let entry = entries[pid] { return entry }
-            guard let parent = parentPid(of: pid), parent > 1, parent != pid else { return nil }
-            pid = parent
-        }
-        return nil
-    }
-
-    private static func parentPid(of pid: pid_t) -> pid_t? {
-        var info = proc_bsdinfo()
-        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
-        return pid_t(info.pbi_ppid)
+        return Processes.ancestry(of: getppid()).lazy.compactMap { entries[$0] }.first
     }
 
     private struct ResolveError: Error { let message: String }

@@ -1,6 +1,87 @@
 import AppKit
 import UserNotifications
 
+/// Brings the window (and tab, where possible) of a session to the front.
+enum SessionFocus {
+    enum Host: Equatable {
+        case vsCodeExtension
+        case terminal(tty: String)
+        case app(NSRunningApplication)
+        case unknown
+    }
+
+    static func focus(_ agent: Agent, deepLink: Bool) {
+        switch host(of: agent) {
+        case .vsCodeExtension, .unknown:
+            VSCode.focus(agent, deepLink: deepLink)
+        case .terminal(let tty):
+            if !Terminal.focusTab(tty: tty) { Terminal.activate() }
+        case .app(let app):
+            if app.bundleIdentifier?.hasPrefix(VSCode.bundleId) == true {
+                // Claude running in VS Code's integrated terminal: the window, not the tab.
+                VSCode.focus(agent, deepLink: false)
+            } else {
+                app.activate()
+            }
+        }
+    }
+
+    /// The nearest ancestor that's a regular app tells where the session runs.
+    static func host(of agent: Agent) -> Host {
+        if agent.entrypoint == "claude-vscode" { return .vsCodeExtension }
+        for pid in Processes.ancestry(of: agent.pid).dropFirst() {
+            guard let app = NSRunningApplication(processIdentifier: pid), app.bundleIdentifier != nil else { continue }
+            if app.bundleIdentifier == Terminal.bundleId, let tty = Processes.tty(of: agent.pid) {
+                return .terminal(tty: tty)
+            }
+            return .app(app)
+        }
+        return .unknown
+    }
+
+    static func describe(_ agent: Agent) -> String {
+        switch host(of: agent) {
+        case .vsCodeExtension: return "vscode"
+        case .terminal(let tty): return "Terminal \(tty)"
+        case .app(let app): return app.localizedName ?? app.bundleIdentifier ?? "app"
+        case .unknown: return "unknown"
+        }
+    }
+}
+
+enum Terminal {
+    static let bundleId = "com.apple.Terminal"
+
+    /// Selects the Terminal tab whose tty matches and raises its window. Needs Automation permission,
+    /// which macOS asks for on first use. Returns false if no tab matched or the script failed.
+    static func focusTab(tty: String) -> Bool {
+        guard tty.range(of: #"^/dev/ttys\d+$"#, options: .regularExpression) != nil else { return false }
+        let source = """
+        tell application "Terminal"
+            repeat with w in windows
+                repeat with t in tabs of w
+                    if tty of t is "\(tty)" then
+                        set miniaturized of w to false
+                        set selected of t to true
+                        set index of w to 1
+                        activate
+                        return true
+                    end if
+                end repeat
+            end repeat
+            return false
+        end tell
+        """
+        var error: NSDictionary?
+        let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
+        return error == nil && result?.booleanValue == true
+    }
+
+    static func activate() {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first?.activate()
+    }
+}
+
 enum VSCode {
     static let bundleId = "com.microsoft.VSCode"
     private static let storage = Paths.home

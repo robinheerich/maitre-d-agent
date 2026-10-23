@@ -10,6 +10,10 @@ struct PanelView: View {
                 .padding(.horizontal, 12)
                 .frame(height: 38)
             Divider()
+            if !store.inbox.isEmpty {
+                Inbox()
+                Divider()
+            }
             if store.agents.isEmpty && store.config.customGroups.isEmpty {
                 VStack(spacing: 6) {
                     Image(systemName: "moon.zzz").font(.title2).foregroundStyle(.tertiary)
@@ -130,6 +134,128 @@ private struct NoticeBanner: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(Color.yellow.opacity(0.08))
+    }
+}
+
+// MARK: - Inbox
+
+/// Open flags, newest first, above the agent list.
+private struct Inbox: View {
+    @EnvironmentObject private var store: Store
+
+    var body: some View {
+        let items = store.inbox
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 5) {
+                Image(systemName: "tray.full.fill").font(.system(size: 9))
+                Text(store.copy.inboxTitle).fontWeight(.semibold)
+                Spacer()
+                Text("\(items.count)")
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(items, id: \.flag.id) { item in
+                        InboxItem(flag: item.flag, agent: item.agent)
+                        if item.flag.id != items.last?.flag.id { Divider().opacity(0.5) }
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .background(Color.orange.opacity(0.06))
+    }
+}
+
+private struct InboxItem: View {
+    @EnvironmentObject private var store: Store
+    let flag: Flag
+    let agent: Agent
+    @State private var expanded = false
+    @State private var truncated = false
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Image(systemName: "flag.fill").font(.system(size: 8)).foregroundStyle(.orange)
+                Text(flag.raisedByName).fontWeight(.medium)
+                if !flag.isSelf {
+                    Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(.tertiary)
+                    Text(flag.subjectName).fontWeight(.medium)
+                }
+                Spacer()
+                if hovering {
+                    Button { store.dismissFlag(flag) } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless)
+                        .help(store.copy.dismissOne)
+                } else {
+                    Text(ago(flag.createdAt)).foregroundStyle(.tertiary)
+                }
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+
+            ClampedText(text: flag.message, lines: 3, expanded: expanded, truncated: $truncated)
+                .font(.callout)
+
+            if truncated || expanded {
+                Button(expanded ? store.copy.showLess : store.copy.showMore) {
+                    withAnimation(.easeOut(duration: 0.15)) { expanded.toggle() }
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(Color.accentColor)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
+        .background(Color.primary.opacity(hovering ? 0.05 : 0))
+        .onHover { hovering = $0 }
+        .onTapGesture { store.focus(agent) }
+        .help(store.copy.goTo(agent.name))
+    }
+}
+
+/// Text limited to `lines`, reporting whether the limit actually cut anything off.
+private struct ClampedText: View {
+    let text: String
+    let lines: Int
+    let expanded: Bool
+    @Binding var truncated: Bool
+
+    var body: some View {
+        Text(text)
+            .lineLimit(expanded ? nil : lines)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                GeometryReader { shown in
+                    Text(text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: shown.size.width, alignment: .leading)
+                        .hidden()
+                        .background(GeometryReader { full in
+                            Color.clear
+                                .onAppear { measure(full: full.size.height, shown: shown.size.height) }
+                                .onChange(of: full.size.height) { _, height in measure(full: height, shown: shown.size.height) }
+                                .onChange(of: shown.size.height) { _, height in measure(full: full.size.height, shown: height) }
+                        })
+                }
+            )
+    }
+
+    private func measure(full: CGFloat, shown: CGFloat) {
+        guard !expanded else { return }
+        let cut = full > shown + 1
+        if cut != truncated { truncated = cut }
     }
 }
 

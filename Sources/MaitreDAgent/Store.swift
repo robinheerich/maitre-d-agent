@@ -405,6 +405,16 @@ final class Store: ObservableObject {
         agent.flags.forEach { Flags.remove($0.id) }
     }
 
+    func dismissFlag(_ flag: Flag) {
+        Flags.remove(flag.id)
+    }
+
+    /// All open flags with the agent whose row shows them, newest first.
+    var inbox: [(flag: Flag, agent: Agent)] {
+        agents.flatMap { agent in agent.flags.map { (flag: $0, agent: agent) } }
+            .sorted { $0.flag.createdAt > $1.flag.createdAt }
+    }
+
     func focus(_ agent: Agent) {
         SessionFocus.focus(agent, deepLink: config.deepLink)
     }
@@ -472,7 +482,12 @@ extension Store {
             agent("webshop", "search", .needsMe, 2, 0.18, .permission(tool: "Bash")),
             agent("webshop", "design-system", .working, 0, 0.27),
             agent("webshop", "payments", .idle, 38, 0.63),
-            agent("infra", "terraform", .working, 12, 0.35),
+            agent("infra", "terraform", .needsMe, 12, 0.35, flags: [Flag(
+                id: "demo-2", raisedBySession: "terraform", raisedByName: "terraform", subjectSession: "terraform",
+                subjectName: "terraform",
+                message: "Decide: staging and production drifted on the load balancer config. Apply production's version to staging (safe, 2 min) or keep staging's newer timeouts and port them to production (needs a maintenance window)?",
+                createdAt: Date().addingTimeInterval(-300)
+            )]),
             agent("infra", "ci-fixer", .idle, 95, 0.12),
             agent("blog", "blog", .idle, 300, 0.05),
             agent("dotfiles", "dotfiles", .working, 2, 0.22),

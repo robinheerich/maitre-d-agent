@@ -94,6 +94,12 @@ struct Copy {
         return flag.message
     }
 
+    var inboxTitle: String { pretentious ? "Correspondence" : "Inbox" }
+    var showMore: String { pretentious ? "Read on" : "Show more" }
+    var showLess: String { pretentious ? "Fold the note" : "Show less" }
+    func goTo(_ name: String) -> String { pretentious ? "Attend to \(name)" : "Go to \(name)" }
+    var dismissOne: String { pretentious ? "Nod Politely" : "Dismiss" }
+
     func dismissFlags(_ count: Int) -> String {
         if pretentious { return "Nod Politely" }
         return count == 1 ? "Dismiss Flag" : "Dismiss \(count) Flags"

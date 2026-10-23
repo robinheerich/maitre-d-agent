@@ -73,7 +73,8 @@ Agents can ask for your attention even when they aren't blocked on a prompt. The
 ```
 
 - The command works out which session ran it, so agents never need their session ID. `--agent` takes a session name, the same names SendMessage uses.
-- A flag shows on the row of the agent that raised it, with 🚩 and its message. Hover for the full text and who it's about. You also get a notification.
+- Open flags collect in an **inbox** at the top of the panel, newest first, with up to three lines of each message ("Show more" for the rest). Click one to jump to the agent that raised it; ✕ on hover dismisses it.
+- A flag also shows on the row of the agent that raised it, with 🚩 and its message, and you get a notification.
 - A flag clears when you next prompt the agent that raised it or the one it's about (messages from other agents don't count), when you dismiss it (✕ on hover or right-click), or when the agent runs `unflag`.
 - The installer allows `~/.maitre-d-agent/bin/maitre-d` in your Claude Code permissions so flagging never itself triggers a permission prompt, and puts the skill in `~/.claude/skills/maitre-d/`. Uninstalling removes both.
 

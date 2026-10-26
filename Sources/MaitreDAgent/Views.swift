@@ -69,7 +69,7 @@ private struct HeaderView: View {
                     .foregroundStyle(store.config.pinned ? Color.accentColor : Color.secondary)
             }
             .buttonStyle(.borderless)
-            .help(store.config.pinned ? "Unpin: hide when clicking elsewhere" : "Pin: keep floating on top")
+            .help(store.config.pinned ? "Unpin: hide when clicking elsewhere" : "Pin: keep floating on top, on this desktop")
             SettingsMenu()
         }
         .font(.callout.monospacedDigit())
@@ -415,7 +415,8 @@ private struct AgentRow: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            StatusDot(status: agent.status, label: store.copy.status(agent.status))
+            StatusDot(status: agent.status, label: store.copy.status(agent.status)
+                + (agent.backgroundShell ? " · \(store.copy.backgroundShell)" : ""))
             HStack(spacing: 5) {
                 if isLead {
                     Image(systemName: "star.fill")
@@ -428,6 +429,12 @@ private struct AgentRow: View {
                     .truncationMode(.middle)
                     // Tooltips sit on the parts, not the row: a row-level .help hides the inner ones.
                     .help("\(agent.cwd)\n\(store.copy.status(agent.status))\(agent.waitReason.map { " · \(store.copy.reason($0))" } ?? "")")
+                if agent.remoteControl {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .help(store.copy.remoteControl)
+                }
                 if agent.status == .needsMe, let reason = agent.waitReason {
                     Text(store.copy.reason(reason))
                         .font(.caption)

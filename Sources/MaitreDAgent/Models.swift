@@ -46,6 +46,10 @@ struct Agent: Identifiable, Equatable {
     let context: ContextUsage?
     /// Flags raised by this agent (for itself or for another agent), oldest first.
     let flags: [Flag]
+    /// Remote Control is on, so the session can be followed from another device.
+    var remoteControl = false
+    /// Idle, but a background shell it started (a dev server, say) is still running.
+    var backgroundShell = false
     var since: Date = .distantPast
 
     var id: String { key }

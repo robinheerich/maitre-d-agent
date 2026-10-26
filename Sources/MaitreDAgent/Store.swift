@@ -81,7 +81,8 @@ final class Worker: @unchecked Sendable {
             } else {
                 switch entry.status {
                 case "waiting": status = .needsMe; waitReason = .other(entry.waitingFor ?? "input needed")
-                case "busy", "shell": status = .working
+                // "shell" is Claude Code's idle-with-a-background-shell, not work in progress.
+                case "busy": status = .working
                 default: status = .idle
                 }
             }
@@ -97,7 +98,9 @@ final class Worker: @unchecked Sendable {
                 context: transcripts.contextTokens[entry.sessionId].map {
                     ContextUsage(tokens: $0.tokens, window: ContextUsage.window(model: $0.model, peakTokens: $0.peak))
                 },
-                flags: flags
+                flags: flags,
+                remoteControl: entry.bridgeSessionId != nil,
+                backgroundShell: entry.status == "shell"
             ))
         }
 
@@ -462,18 +465,19 @@ final class Store: ObservableObject {
 extension Store {
     func loadDemo(pretentious: Bool) {
         func agent(_ repo: String, _ name: String, _ status: AgentStatus, _ minutes: Double, _ context: Double,
-                   _ reason: WaitReason? = nil, flags: [Flag] = []) -> Agent {
+                   _ reason: WaitReason? = nil, remote: Bool = false, flags: [Flag] = []) -> Agent {
             var agent = Agent(
                 sessionId: UUID().uuidString, pid: 0, key: "/demo/\(repo)|\(name)", name: name, cwd: "/demo/\(repo)",
                 repoRoot: "/demo/\(repo)", entrypoint: "claude-vscode", status: status, waitReason: reason, reportedSince: nil,
                 context: ContextUsage(tokens: Int(context * 1_000_000), window: 1_000_000),
-                flags: flags
+                flags: flags,
+                remoteControl: remote
             )
             agent.since = Date().addingTimeInterval(-minutes * 60)
             return agent
         }
         agents = [
-            agent("webshop", "shop-lead", .needsMe, 1, 0.82, flags: [Flag(
+            agent("webshop", "shop-lead", .needsMe, 1, 0.82, remote: true, flags: [Flag(
                 id: "demo", raisedBySession: "lead", raisedByName: "shop-lead", subjectSession: "payments",
                 subjectName: "payments", message: "Approve new provider",
                 createdAt: Date().addingTimeInterval(-60)

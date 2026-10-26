@@ -17,11 +17,12 @@ A small macOS menu-bar app for anyone running several Claude Code sessions in pa
 - **Manual order**: drag agents and groups into the order you want. The order survives restarts.
 - **Lead agents**: if one agent per project coordinates the others, mark it as lead. It moves to the top with a ★ and the rest of its group fades slightly. Agents that need you never fade.
 - **Agents can flag you**: an agent runs `maitre-d flag "Approve: …"` when it needs your decision. A lead can flag on behalf of another agent; the flag then shows on the lead's row. See [Flags](#flags).
+- **Remote Control**: sessions with Remote Control on show an antenna icon next to their name.
 - **Context window**: a small pie per agent shows how full its context is, and turns orange from 70% so you know when to compact. Hover for exact token counts.
 - **Agent-to-agent messages**: each agent shows how many `SendMessage` messages it sent and received in the last 24h (↑ sent ↓ received). A feed lists them; click one for the full text.
 - **Jump to the session**: click an agent to bring it to the front. For VS Code sessions, its window comes forward and its Claude tab opens. For Terminal.app, the exact tab is selected. For other terminals, the app comes to the front.
 - **Notifications** when an agent starts needing you.
-- **Pin** the panel to keep it floating on top, or let it drop down from the menu bar.
+- **Pin** the panel to keep it floating on top, or let it drop down from the menu bar. A pinned panel stays on the desktop you pinned it on; on other desktops the menu bar icon opens the usual drop-down.
 - **Pretentious mode**: the same app, narrated by a French maître d'. Patrons wave, dine and digest, and pass notes between tables. Toggle it in the ⋯ menu.
 
 ## Requirements
@@ -50,6 +51,7 @@ Everything is read from local files. The app makes no network requests.
 
 | What | Where it comes from |
 |---|---|
+| Remote Control | The registry's `bridgeSessionId`, which Claude Code sets while Remote Control is on |
 | Running sessions, names, working/idle | `~/.claude/sessions/<pid>.json`, the session registry Claude Code maintains |
 | Needs you | Marker files written by `~/.maitre-d-agent/hook.sh` on `PermissionRequest`, `AskUserQuestion` and `ExitPlanMode`, and removed when the session continues. Also the registry's `waiting` status. |
 | Messages | `SendMessage` tool calls in the session transcripts, `~/.claude/projects/*/<session>.jsonl` |

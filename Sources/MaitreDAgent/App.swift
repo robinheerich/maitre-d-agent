@@ -29,7 +29,7 @@ enum Main {
         if arguments.contains("--dump") {
             let snapshot = Worker().snapshotOnce()
             for agent in snapshot.agents {
-                print("\(Copy.normal.status(agent.status).padding(toLength: 10, withPad: " ", startingAt: 0)) \(agent.name)  [\(agent.repoRoot)]\(agent.waitReason.map { "  (\(Copy.normal.reason($0)))" } ?? "")\(agent.context.map { "  ctx \($0.percent)% \(shortTokens($0.tokens))/\(shortTokens($0.window))" } ?? "")\(agent.flags.map { "  flag: \(Copy.normal.flagLine($0))" }.joined())  host: \(SessionFocus.describe(agent))")
+                print("\(Copy.normal.status(agent.status).padding(toLength: 10, withPad: " ", startingAt: 0)) \(agent.name)  [\(agent.repoRoot)]\(agent.waitReason.map { "  (\(Copy.normal.reason($0)))" } ?? "")\(agent.context.map { "  ctx \($0.percent)% \(shortTokens($0.tokens))/\(shortTokens($0.window))" } ?? "")\(agent.flags.map { "  flag: \(Copy.normal.flagLine($0))" }.joined())  host: \(SessionFocus.describe(agent))\(agent.remoteControl ? "  remote-control" : "")")
             }
             print("\(snapshot.messages.count) messages in the last 24h")
             for message in snapshot.messages.sorted(by: { $0.date > $1.date }).prefix(10) {
@@ -126,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.onFlagCleared = { [weak self] flag in self?.notifier.clear(id: "flag-\(flag.id)") }
 
         store.start()
-        if store.config.pinned { panel.show() }
+        panel.showPinnedIfNeeded()
     }
 
     @objc private func togglePanel() {
@@ -163,10 +163,13 @@ final class FloatingPanel: NSPanel {
     }
 }
 
-/// The agent list window: drops down from the menu bar, or floats on top when pinned.
+/// The agent list: a drop-down under the menu bar icon, or a pinned panel floating on top.
+/// The pinned panel stays on the desktop (Space) it was pinned on. On every other desktop the
+/// menu bar icon opens the drop-down there, so it never switches you to another desktop.
 @MainActor
 final class PanelController: NSObject, NSWindowDelegate {
-    private let panel: FloatingPanel
+    private let dropDown: FloatingPanel
+    private let pinnedPanel: FloatingPanel
     private let store: Store
     private weak var statusItem: NSStatusItem?
     private var lastHidden = Date.distantPast
@@ -175,30 +178,12 @@ final class PanelController: NSObject, NSWindowDelegate {
     init(store: Store, statusItem: NSStatusItem) {
         self.store = store
         self.statusItem = statusItem
-        panel = FloatingPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 480),
-            styleMask: [.titled, .fullSizeContentView, .resizable, .closable],
-            backing: .buffered,
-            defer: true
-        )
+        dropDown = Self.makePanel(store: store, behavior: [.canJoinAllSpaces, .fullScreenAuxiliary])
+        pinnedPanel = Self.makePanel(store: store, behavior: [.fullScreenAuxiliary])
         super.init()
 
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            panel.standardWindowButton(button)?.isHidden = true
-        }
-        panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = false
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.minSize = NSSize(width: 280, height: 220)
-        panel.delegate = self
-        panel.onCancel = { [weak self] in
-            guard let self, !self.store.config.pinned else { return }
-            self.hide()
-        }
-        panel.contentView = NSHostingView(rootView: PanelView().environmentObject(store))
+        for panel in [dropDown, pinnedPanel] { panel.delegate = self }
+        dropDown.onCancel = { [weak self] in self?.hideDropDown() }
 
         store.$config
             .map(\.pinned)
@@ -208,27 +193,66 @@ final class PanelController: NSObject, NSWindowDelegate {
             .store(in: &subscriptions)
     }
 
+    private static func makePanel(store: Store, behavior: NSWindow.CollectionBehavior) -> FloatingPanel {
+        let panel = FloatingPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 480),
+            styleMask: [.titled, .fullSizeContentView, .resizable, .closable],
+            backing: .buffered,
+            defer: true
+        )
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            panel.standardWindowButton(button)?.isHidden = true
+        }
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.level = .floating
+        panel.collectionBehavior = behavior
+        panel.minSize = NSSize(width: 280, height: 220)
+        panel.contentView = NSHostingView(rootView: PanelView().environmentObject(store))
+        return panel
+    }
+
+    /// Menu bar icon click.
     func toggle() {
-        if panel.isVisible {
-            hide()
+        if store.config.pinned, !pinnedPanel.isVisible || pinnedPanel.isOnActiveSpace {
+            // The pinned panel is hidden or on this desktop: show or hide it.
+            pinnedPanel.isVisible ? pinnedPanel.orderOut(nil) : showPinned()
+        } else if dropDown.isVisible {
+            hideDropDown()
         } else if Date().timeIntervalSince(lastHidden) > 0.3 {
-            // The click on the status item already hid an unpinned panel via resignKey.
-            show()
+            // The click on the status item already hid the drop-down via resignKey.
+            showDropDown()
         }
     }
 
-    func show() {
-        if store.config.pinned, let saved = store.config.pinnedFrame {
-            panel.setFrame(NSRectFromString(saved), display: false)
-        } else {
-            positionBelowStatusItem()
+    /// At launch: the pinned panel opens on the current desktop.
+    func showPinnedIfNeeded() {
+        if store.config.pinned { showPinned() }
+    }
+
+    private func showPinned() {
+        if let saved = store.config.pinnedFrame {
+            pinnedPanel.setFrame(NSRectFromString(saved), display: false)
         }
+        bringForward(pinnedPanel)
+    }
+
+    private func showDropDown() {
+        positionBelowStatusItem()
+        bringForward(dropDown)
+    }
+
+    private func bringForward(_ panel: NSPanel) {
+        // Order in before activating, so activation finds a window on this desktop and doesn't switch.
+        panel.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
+        panel.makeKey()
     }
 
-    private func hide() {
-        panel.orderOut(nil)
+    private func hideDropDown() {
+        dropDown.orderOut(nil)
         lastHidden = Date()
     }
 
@@ -236,30 +260,36 @@ final class PanelController: NSObject, NSWindowDelegate {
         guard let buttonWindow = statusItem?.button?.window,
               let screen = buttonWindow.screen ?? NSScreen.main else { return }
         let anchor = buttonWindow.frame
-        let size = panel.frame.size
+        let size = dropDown.frame.size
         let visible = screen.visibleFrame
         let x = min(max(anchor.midX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8)
-        panel.setFrameTopLeftPoint(NSPoint(x: x, y: anchor.minY - 6))
+        dropDown.setFrameTopLeftPoint(NSPoint(x: x, y: anchor.minY - 6))
     }
 
     private func pinnedChanged(_ pinned: Bool) {
         if pinned {
-            store.config.pinnedFrame = NSStringFromRect(panel.frame)
+            // Pinned from the drop-down: the pinned panel takes its place, on this desktop.
+            pinnedPanel.setFrame(dropDown.frame, display: false)
+            store.config.pinnedFrame = NSStringFromRect(dropDown.frame)
+            dropDown.orderOut(nil)
+            bringForward(pinnedPanel)
         } else {
-            positionBelowStatusItem()
+            let wasHere = pinnedPanel.isVisible && pinnedPanel.isOnActiveSpace
+            pinnedPanel.orderOut(nil)
+            if wasHere { showDropDown() }
         }
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        guard !store.config.pinned, panel.attachedSheet == nil else { return }
-        hide()
+        guard notification.object as? NSWindow === dropDown, dropDown.attachedSheet == nil else { return }
+        hideDropDown()
     }
 
-    func windowDidMove(_ notification: Notification) { savePinnedFrame() }
-    func windowDidEndLiveResize(_ notification: Notification) { savePinnedFrame() }
+    func windowDidMove(_ notification: Notification) { savePinnedFrame(notification) }
+    func windowDidEndLiveResize(_ notification: Notification) { savePinnedFrame(notification) }
 
-    private func savePinnedFrame() {
-        guard store.config.pinned, panel.isVisible else { return }
-        store.config.pinnedFrame = NSStringFromRect(panel.frame)
+    private func savePinnedFrame(_ notification: Notification) {
+        guard notification.object as? NSWindow === pinnedPanel, store.config.pinned, pinnedPanel.isVisible else { return }
+        store.config.pinnedFrame = NSStringFromRect(pinnedPanel.frame)
     }
 }

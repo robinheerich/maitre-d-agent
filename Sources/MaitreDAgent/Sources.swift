@@ -16,23 +16,27 @@ struct RegistryEntry {
     let waitingFor: String?
     let entrypoint: String?
     let statusUpdatedAt: Date?
+    /// Set while Remote Control is on for the session; Claude Code clears it when it's turned off.
+    let bridgeSessionId: String?
 }
 
 enum Registry {
     static func read() -> [RegistryEntry] {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(atPath: Paths.sessions.path) else { return [] }
-        var seen = Set<String>()
-        var entries: [RegistryEntry] = []
+        // A resumed session can briefly (or, if the old window stays open, lastingly) run in two
+        // processes. Keep the one that was active most recently.
+        var newest: [String: (entry: RegistryEntry, updatedAt: Double)] = [:]
         for file in files where file.hasSuffix(".json") {
             guard let pid = Int32(file.dropLast(5)), isClaudeProcess(pid),
                   let data = fm.contents(atPath: Paths.sessions.appendingPathComponent(file).path),
                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   let sessionId = obj["sessionId"] as? String,
-                  let cwd = obj["cwd"] as? String,
-                  seen.insert(sessionId).inserted else { continue }
+                  let cwd = obj["cwd"] as? String else { continue }
+            let updatedAt = obj["updatedAt"] as? Double ?? obj["startedAt"] as? Double ?? 0
+            if let existing = newest[sessionId], existing.updatedAt >= updatedAt { continue }
             let name = (obj["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            entries.append(RegistryEntry(
+            newest[sessionId] = (RegistryEntry(
                 pid: pid,
                 sessionId: sessionId,
                 cwd: cwd,
@@ -40,10 +44,11 @@ enum Registry {
                 status: obj["status"] as? String,
                 waitingFor: obj["waitingFor"] as? String,
                 entrypoint: obj["entrypoint"] as? String,
-                statusUpdatedAt: (obj["statusUpdatedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
-            ))
+                statusUpdatedAt: (obj["statusUpdatedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) },
+                bridgeSessionId: (obj["bridgeSessionId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ), updatedAt)
         }
-        return entries
+        return newest.values.map(\.entry).sorted { $0.pid < $1.pid }
     }
 
     /// The pid is alive and (as far as we can tell) still a Claude process, not a reused pid.

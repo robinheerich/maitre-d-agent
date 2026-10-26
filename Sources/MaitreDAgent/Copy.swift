@@ -23,6 +23,8 @@ struct Copy {
         }
     }
 
+    var backgroundShell: String { pretentious ? "a dish still simmering in the kitchen" : "background shell running" }
+
     func reason(_ reason: WaitReason) -> String {
         switch reason {
         case .permission(let tool):
@@ -103,6 +105,12 @@ struct Copy {
     func dismissFlags(_ count: Int) -> String {
         if pretentious { return "Nod Politely" }
         return count == 1 ? "Dismiss Flag" : "Dismiss \(count) Flags"
+    }
+
+    // MARK: Remote Control
+
+    var remoteControl: String {
+        pretentious ? "Taking calls at the table: Remote Control is on" : "Remote Control is on"
     }
 
     // MARK: Context window

@@ -165,6 +165,10 @@ enum Flags {
         try encoder.encode(flag).write(to: Paths.flags.appendingPathComponent("\(flag.id).json"), options: .atomic)
     }
 
+    static func encode<T: Encodable>(_ value: T) throws -> Data {
+        try encoder.encode(value)
+    }
+
     static func remove(_ id: String) {
         try? FileManager.default.removeItem(at: Paths.flags.appendingPathComponent("\(id).json"))
     }

@@ -176,7 +176,7 @@ private struct Inbox: View {
 private struct InboxItem: View {
     @EnvironmentObject private var store: Store
     let flag: Flag
-    let agent: Agent
+    let agent: Agent?
     @State private var expanded = false
     @State private var truncated = false
     @State private var hovering = false
@@ -219,8 +219,8 @@ private struct InboxItem: View {
         .contentShape(Rectangle())
         .background(Color.primary.opacity(hovering ? 0.05 : 0))
         .onHover { hovering = $0 }
-        .onTapGesture { store.focus(agent) }
-        .help(store.copy.goTo(agent.name))
+        .onTapGesture { if let agent { store.focus(agent) } }
+        .help(agent.map { store.copy.goTo($0.name) } ?? store.copy.sessionEnded)
     }
 }
 

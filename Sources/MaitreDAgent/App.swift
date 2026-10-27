@@ -7,7 +7,9 @@ enum Main {
     @MainActor
     static func main() {
         let arguments = CommandLine.arguments
-        if arguments.count > 1, CLI.commands.contains(arguments[1]) {
+        // The maitre-d wrapper sets MAITRE_D_CLI, so it never starts the app, whatever the arguments.
+        if ProcessInfo.processInfo.environment["MAITRE_D_CLI"] != nil
+            || (arguments.count > 1 && CLI.commands.contains(arguments[1])) {
             exit(CLI.run(arguments))
         }
         if arguments.contains("--install-hooks") || arguments.contains("--uninstall-hooks") {
@@ -30,6 +32,9 @@ enum Main {
             let snapshot = Worker().snapshotOnce()
             for agent in snapshot.agents {
                 print("\(Copy.normal.status(agent.status).padding(toLength: 10, withPad: " ", startingAt: 0)) \(agent.name)  [\(agent.repoRoot)]\(agent.waitReason.map { "  (\(Copy.normal.reason($0)))" } ?? "")\(agent.context.map { "  ctx \($0.percent)% \(shortTokens($0.tokens))/\(shortTokens($0.window))" } ?? "")\(agent.flags.map { "  flag: \(Copy.normal.flagLine($0))" }.joined())  host: \(SessionFocus.describe(agent))\(agent.remoteControl ? "  remote-control" : "")")
+            }
+            for flag in snapshot.unattachedFlags {
+                print("flag (session ended)  \(flag.raisedByName): \(Copy.normal.flagLine(flag))\(flag.ref.map { "  ref: \($0)" } ?? "")")
             }
             print("\(snapshot.messages.count) messages in the last 24h")
             for message in snapshot.messages.sorted(by: { $0.date > $1.date }).prefix(10) {
@@ -101,8 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel = PanelController(store: store, statusItem: statusItem)
 
         store.$agents
-            .combineLatest(store.$config.map(\.pretentious).removeDuplicates())
-            .sink { [weak self] agents, _ in self?.updateStatusItem(agents) }
+            .combineLatest(store.$unattachedFlags, store.$config.map(\.pretentious).removeDuplicates())
+            .sink { [weak self] agents, unattached, _ in self?.updateStatusItem(agents, unattachedFlags: unattached.count) }
             .store(in: &subscriptions)
 
         notifier.setup()
@@ -115,12 +120,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.onNoLongerNeedsMe = { [weak self] agent in self?.notifier.clear(agent) }
         store.onFlag = { [weak self] flag, agent in
             guard let self, self.store.config.notifications else { return }
-            let group = self.store.groups.first { $0.agents.contains { $0.key == agent.key } }?.title ?? ""
+            let group = agent.flatMap { agent in self.store.groups.first { $0.agents.contains { $0.key == agent.key } }?.title } ?? ""
             self.notifier.post(
                 id: "flag-\(flag.id)",
                 title: self.store.copy.flagNotificationTitle(flag, group: group),
                 body: self.store.copy.flagNotificationBody(flag),
-                sessionId: agent.sessionId
+                sessionId: agent?.sessionId ?? flag.raisedBySession
             )
         }
         store.onFlagCleared = { [weak self] flag in self?.notifier.clear(id: "flag-\(flag.id)") }
@@ -133,8 +138,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.toggle()
     }
 
-    private func updateStatusItem(_ agents: [Agent]) {
-        let needs = agents.filter { $0.status == .needsMe }.count
+    // Takes the published values: @Published emits before the store's properties change.
+    private func updateStatusItem(_ agents: [Agent], unattachedFlags: Int) {
+        let needs = agents.filter { $0.status == .needsMe }.count + unattachedFlags
         let working = agents.filter { $0.status == .working }.count
         let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         let title = NSMutableAttributedString()

@@ -65,6 +65,9 @@ struct Flag: Codable, Identifiable, Equatable {
     let subjectName: String
     let message: String
     let createdAt: Date
+    /// Opaque reference set by an external system (`maitre-d flag --ref`). Flags with a ref
+    /// outlive their sessions: they clear only on a prompt, a dismiss or an explicit unflag.
+    var ref: String? = nil
 
     var isSelf: Bool { subjectSession == raisedBySession }
 }

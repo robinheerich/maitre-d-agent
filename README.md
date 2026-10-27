@@ -71,14 +71,34 @@ Agents can ask for your attention even when they aren't blocked on a prompt. The
 ~/.maitre-d-agent/bin/maitre-d flag "Decide: ship the feed schema as v1?"        # flag yourself
 ~/.maitre-d-agent/bin/maitre-d flag --agent merchant "Approve the schema change"  # a lead flags another agent
 ~/.maitre-d-agent/bin/maitre-d unflag                                            # take it back
-~/.maitre-d-agent/bin/maitre-d flags                                             # list open flags
+~/.maitre-d-agent/bin/maitre-d flags [--json]                                    # list open flags
 ```
 
 - The command works out which session ran it, so agents never need their session ID. `--agent` takes a session name, the same names SendMessage uses.
 - Open flags collect in an **inbox** at the top of the panel, newest first, with up to three lines of each message ("Show more" for the rest). Click one to jump to the agent that raised it; ✕ on hover dismisses it.
 - A flag also shows on the row of the agent that raised it, with 🚩 and its message, and you get a notification.
 - A flag clears when you next prompt the agent that raised it or the one it's about (messages from other agents don't count), when you dismiss it (✕ on hover or right-click), or when the agent runs `unflag`.
+- If the agent that raised a flag ends, the flag stays in the inbox. Without a ref it's removed after 5 minutes.
 - The installer allows `~/.maitre-d-agent/bin/maitre-d` in your Claude Code permissions so flagging never itself triggers a permission prompt, and puts the skill in `~/.claude/skills/maitre-d/`. Uninstalling removes both.
+
+### Connecting other tools
+
+Other tools, such as a task board, can mirror flags and clear them:
+
+- `maitre-d flag --ref <ref> "…"` attaches an opaque reference, for example `board:task-42`. Maître d'Agént stores it but never interprets it. A flag with a ref stays open after its sessions end. It clears only when the human prompts the raising or flagged agent, dismisses it, or something runs `unflag`.
+- `maitre-d unflag --id <id>` (repeatable) or `maitre-d unflag --ref <ref>` clears flags from anywhere, also outside a Claude session.
+- Open flags are JSON files in `~/.maitre-d-agent/flags/<id>.json`, one per flag. Read them directly, or use `maitre-d flags --json`. A flag is open exactly as long as its file exists. The format is stable:
+
+| Field | |
+|---|---|
+| `id` | Flag ID, also the file name |
+| `raisedBySession`, `raisedByName` | Claude Code session ID and name of the agent that ran `flag` |
+| `subjectSession`, `subjectName` | The agent the flag is about; the same as the raiser unless `--agent` was used |
+| `message` | Up to 300 characters |
+| `createdAt` | Unix time in seconds |
+| `ref` | Optional, as passed with `--ref` |
+
+Other fields may be added later; ignore the ones you don't know.
 
 ## Usage
 

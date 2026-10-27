@@ -7,6 +7,8 @@ import ServiceManagement
 final class Worker: @unchecked Sendable {
     struct Snapshot {
         let agents: [Agent]
+        /// Flags whose raising session isn't running, shown in the inbox only.
+        let unattachedFlags: [Flag]
         let messages: [AgentMessage]
         let fromHistory: Bool
     }
@@ -47,15 +49,19 @@ final class Worker: @unchecked Sendable {
         let raw = extra + transcripts.poll(sessionIds: entries.map(\.sessionId))
 
         // A flag clears when the human prompts the agent that raised it or the one it's about,
-        // or when the raising session has been gone for a while.
+        // or when the raising session has been gone for a while (unless an external system owns it via a ref).
         var flagsByRaiser: [String: [Flag]] = [:]
+        var unattachedFlags: [Flag] = []
         for flag in Flags.readAll() {
             let prompted = [flag.raisedBySession, flag.subjectSession].contains {
                 (transcripts.lastHumanPrompt[$0] ?? .distantPast) > flag.createdAt
             }
-            let orphaned = !liveIds.contains(flag.raisedBySession) && Date().timeIntervalSince(flag.createdAt) > 300
+            let raiserLive = liveIds.contains(flag.raisedBySession)
+            let orphaned = !raiserLive && flag.ref == nil && Date().timeIntervalSince(flag.createdAt) > 300
             if prompted || orphaned {
                 Flags.remove(flag.id)
+            } else if !raiserLive {
+                unattachedFlags.append(flag)
             } else {
                 flagsByRaiser[flag.raisedBySession, default: []].append(flag)
             }
@@ -116,7 +122,7 @@ final class Worker: @unchecked Sendable {
                 date: m.date
             )
         }
-        return Snapshot(agents: agents, messages: messages, fromHistory: fromHistory)
+        return Snapshot(agents: agents, unattachedFlags: unattachedFlags, messages: messages, fromHistory: fromHistory)
     }
 
     /// SendMessage targets look like "name" or "name [ref]".
@@ -130,6 +136,7 @@ final class Worker: @unchecked Sendable {
 @MainActor
 final class Store: ObservableObject {
     @Published private(set) var agents: [Agent] = []
+    @Published private(set) var unattachedFlags: [Flag] = []
     @Published private(set) var messages: [AgentMessage] = [] // newest first
     @Published private(set) var sentCounts: [String: Int] = [:]
     @Published private(set) var receivedCounts: [String: Int] = [:]
@@ -147,7 +154,7 @@ final class Store: ObservableObject {
 
     var onNeedsMe: ((Agent) -> Void)?
     var onNoLongerNeedsMe: ((Agent) -> Void)?
-    var onFlag: ((Flag, Agent) -> Void)?
+    var onFlag: ((Flag, Agent?) -> Void)?
     var onFlagCleared: ((Flag) -> Void)?
 
     private let worker = Worker()
@@ -187,8 +194,8 @@ final class Store: ObservableObject {
         }
 
         if loaded {
-            let oldFlags = Dictionary(previous.values.flatMap(\.flags).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            let newFlagIds = Set(next.flatMap(\.flags).map(\.id))
+            let oldFlags = Dictionary((previous.values.flatMap(\.flags) + unattachedFlags).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let newFlagIds = Set((next.flatMap(\.flags) + snapshot.unattachedFlags).map(\.id))
             for agent in next {
                 let old = previous[agent.sessionId]?.status
                 // Flags notify on their own below, so a flag-only "needs you" doesn't notify twice.
@@ -197,9 +204,11 @@ final class Store: ObservableObject {
                 if old == .needsMe && agent.status != .needsMe { onNoLongerNeedsMe?(agent) }
                 for flag in agent.flags where oldFlags[flag.id] == nil { onFlag?(flag, agent) }
             }
+            for flag in snapshot.unattachedFlags where oldFlags[flag.id] == nil { onFlag?(flag, nil) }
             for (id, flag) in oldFlags where !newFlagIds.contains(id) { onFlagCleared?(flag) }
         }
         if next != agents { agents = next }
+        if snapshot.unattachedFlags != unattachedFlags { unattachedFlags = snapshot.unattachedFlags }
 
         if !snapshot.messages.isEmpty {
             let cutoff = Date().addingTimeInterval(-Transcripts.window)
@@ -232,7 +241,8 @@ final class Store: ObservableObject {
 
     // MARK: - Derived
 
-    var needsCount: Int { agents.filter { $0.status == .needsMe }.count }
+    /// Agents that need you, plus flags whose session has ended.
+    var needsCount: Int { agents.filter { $0.status == .needsMe }.count + unattachedFlags.count }
     var workingCount: Int { agents.filter { $0.status == .working }.count }
 
     func isLead(_ agent: Agent) -> Bool { config.leads.contains(agent.key) }
@@ -412,9 +422,10 @@ final class Store: ObservableObject {
         Flags.remove(flag.id)
     }
 
-    /// All open flags with the agent whose row shows them, newest first.
-    var inbox: [(flag: Flag, agent: Agent)] {
-        agents.flatMap { agent in agent.flags.map { (flag: $0, agent: agent) } }
+    /// All open flags with the agent whose row shows them (nil once that session has ended), newest first.
+    var inbox: [(flag: Flag, agent: Agent?)] {
+        (agents.flatMap { agent in agent.flags.map { (flag: $0, agent: Optional(agent)) } }
+            + unattachedFlags.map { (flag: $0, agent: nil) })
             .sorted { $0.flag.createdAt > $1.flag.createdAt }
     }
 

@@ -82,7 +82,7 @@ enum HookInstaller {
 
     One line, at most about 120 characters, starting with what you need:
     `Approve: drop the legacy orders table` or `Decide: ship the feed schema as v1 or wait for review?`
-    Put details in your conversation, not in the flag.
+    Put details in your conversation, not in the flag. If a tool or workflow you use tells you to pass `--ref <ref>`, pass it unchanged; it links the flag to that tool.
 
     The flag clears when the human next prompts you or the agent it's about, when they dismiss it in the app, or when you run `unflag`. Run `unflag` yourself if the need goes away. If the command fails (not inside a Claude Code session, app not installed), tell the human in your reply instead.
     """#
@@ -122,7 +122,7 @@ enum HookInstaller {
         guard Bundle.main.bundlePath.hasSuffix(".app"), let executable = Bundle.main.executablePath else { return }
         let fm = FileManager.default
         try? fm.createDirectory(at: Paths.cli.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let wrapper = "#!/bin/sh\n# Maitre d'Agent flag command; see `maitre-d help`.\nexec \"\(executable)\" \"$@\"\n"
+        let wrapper = "#!/bin/sh\n# Maitre d'Agent flag command; see `maitre-d help`.\nMAITRE_D_CLI=1 exec \"\(executable)\" \"$@\"\n"
         try? wrapper.write(to: Paths.cli, atomically: true, encoding: .utf8)
         try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: Paths.cli.path)
     }
